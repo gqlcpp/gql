@@ -1,8 +1,11 @@
 # This library is just to provide include directory for other libraries.
 add_library(gql_ast INTERFACE)
 
+get_filename_component(NORMALIZED_INCLUDE_PATH
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../include REALPATH)
+
 target_include_directories(gql_ast
-  INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+  INTERFACE ${NORMALIZED_INCLUDE_PATH}
 )
 
 add_library(gql_ast_print STATIC
@@ -17,6 +20,7 @@ target_sources(gql_ast_print_component
 )
 
 target_link_libraries(gql_ast_print
+  PUBLIC
   gql_ast
 )
 

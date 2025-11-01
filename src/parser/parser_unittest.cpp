@@ -70,50 +70,170 @@ auto ParseCharacterStringLiteral(const char* query,
 
 }  // namespace
 
-TEST(ParseNode, UnsignedNumericLiteral) {
+TEST(ParseNode, ExactNumericLiteral) {
   size_t numberOfSyntaxErrors;
   auto value = ParseUnsignedNumericLiteral("123", &numberOfSyntaxErrors);
   EXPECT_EQ(numberOfSyntaxErrors, 0);
-  EXPECT_DOUBLE_EQ(value, 123);
+  auto* exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 123);
+  EXPECT_EQ(exactValue->scale, 0);
 
   value = ParseUnsignedNumericLiteral("0x1234abCD", &numberOfSyntaxErrors);
   EXPECT_EQ(numberOfSyntaxErrors, 0);
-  EXPECT_DOUBLE_EQ(value, 0x1234ABCD);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 0x1234ABCD);
+  EXPECT_EQ(exactValue->scale, 0);
 
   value = ParseUnsignedNumericLiteral("0X1234", &numberOfSyntaxErrors);
   EXPECT_EQ(numberOfSyntaxErrors, 0);
   // Not entire string is parsed, but there is no check for such case yet.
-  EXPECT_DOUBLE_EQ(value, 0);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 0);
+  EXPECT_EQ(exactValue->scale, 0);
 
   value = ParseUnsignedNumericLiteral("0b010101010101001010101111",
                                       &numberOfSyntaxErrors);
   EXPECT_EQ(numberOfSyntaxErrors, 0);
-  EXPECT_DOUBLE_EQ(value, 0b010101010101001010101111);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 0b010101010101001010101111);
+  EXPECT_EQ(exactValue->scale, 0);
 
-  value = ParseUnsignedNumericLiteral("123.456", &numberOfSyntaxErrors);
+  value = ParseUnsignedNumericLiteral("1234.56M", &numberOfSyntaxErrors);
   EXPECT_EQ(numberOfSyntaxErrors, 0);
-  EXPECT_DOUBLE_EQ(value, 123.456);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 123456);
+  EXPECT_EQ(exactValue->scale, 2);
+
+  value = ParseUnsignedNumericLiteral("1234.56", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 123456);
+  EXPECT_EQ(exactValue->scale, 2);
+
+  value = ParseUnsignedNumericLiteral(".123456", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 123456);
+  EXPECT_EQ(exactValue->scale, 6);
+
+  value = ParseUnsignedNumericLiteral("123456.M", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 123456);
+  EXPECT_EQ(exactValue->scale, 0);
+
+  value = ParseUnsignedNumericLiteral("123456E3M", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 123456000);
+  EXPECT_EQ(exactValue->scale, 0);
+
+  value = ParseUnsignedNumericLiteral("123456E+3m", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 123456000);
+  EXPECT_EQ(exactValue->scale, 0);
+
+  value = ParseUnsignedNumericLiteral("123456E-3M", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 123456);
+  EXPECT_EQ(exactValue->scale, 3);
+
+  value = ParseUnsignedNumericLiteral("1234.56E+3M", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 1234560);
+  EXPECT_EQ(exactValue->scale, 0);
+
+  value = ParseUnsignedNumericLiteral("1234.56E-3M", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 123456);
+  EXPECT_EQ(exactValue->scale, 5);
+
+  value = ParseUnsignedNumericLiteral(".123456E-3M", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  exactValue = std::get_if<ast::ExactNumericLiteral>(&value);
+  ASSERT_TRUE(exactValue);
+  EXPECT_EQ(exactValue->value, 123456);
+  EXPECT_EQ(exactValue->scale, 9);
+}
+
+TEST(ParseNode, ApproximateNumericLiteral) {
+  size_t numberOfSyntaxErrors;
+  auto value = ParseUnsignedNumericLiteral("123.456F", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  auto* approxValue = std::get_if<double>(&value);
+  ASSERT_TRUE(approxValue);
+  EXPECT_DOUBLE_EQ(*approxValue, 123.456);
+
+  value = ParseUnsignedNumericLiteral("123.456f", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  approxValue = std::get_if<double>(&value);
+  ASSERT_TRUE(approxValue);
+  EXPECT_DOUBLE_EQ(*approxValue, 123.456);
+
+  value = ParseUnsignedNumericLiteral("123.456d", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  approxValue = std::get_if<double>(&value);
+  ASSERT_TRUE(approxValue);
+  EXPECT_DOUBLE_EQ(*approxValue, 123.456);
+
+  value = ParseUnsignedNumericLiteral("123.456D", &numberOfSyntaxErrors);
+  EXPECT_EQ(numberOfSyntaxErrors, 0);
+  approxValue = std::get_if<double>(&value);
+  ASSERT_TRUE(approxValue);
+  EXPECT_DOUBLE_EQ(*approxValue, 123.456);
 
   value = ParseUnsignedNumericLiteral("123.456e78", &numberOfSyntaxErrors);
   EXPECT_EQ(numberOfSyntaxErrors, 0);
-  EXPECT_DOUBLE_EQ(value, 123.456e78);
+  approxValue = std::get_if<double>(&value);
+  ASSERT_TRUE(approxValue);
+  EXPECT_DOUBLE_EQ(*approxValue, 123.456e78);
 
   value = ParseUnsignedNumericLiteral("123.456e-78", &numberOfSyntaxErrors);
   EXPECT_EQ(numberOfSyntaxErrors, 0);
-  EXPECT_DOUBLE_EQ(value, 123.456e-78);
+  approxValue = std::get_if<double>(&value);
+  ASSERT_TRUE(approxValue);
+  EXPECT_DOUBLE_EQ(*approxValue, 123.456e-78);
 
-  value = ParseUnsignedNumericLiteral("123.456E+78", &numberOfSyntaxErrors);
+  value = ParseUnsignedNumericLiteral("123.456e+78", &numberOfSyntaxErrors);
   EXPECT_EQ(numberOfSyntaxErrors, 0);
-  EXPECT_DOUBLE_EQ(value, 123.456e+78);
+  approxValue = std::get_if<double>(&value);
+  ASSERT_TRUE(approxValue);
+  EXPECT_DOUBLE_EQ(*approxValue, 123.456e+78);
 
   value = ParseUnsignedNumericLiteral("1_123.456e+7_8", &numberOfSyntaxErrors);
   EXPECT_EQ(numberOfSyntaxErrors, 0);
-  EXPECT_DOUBLE_EQ(value, 1123.456e+78);
+  approxValue = std::get_if<double>(&value);
+  ASSERT_TRUE(approxValue);
+  EXPECT_DOUBLE_EQ(*approxValue, 1123.456e+78);
 
   EXPECT_THROW(
       {
         value =
             ParseUnsignedNumericLiteral("123.456e+7890", &numberOfSyntaxErrors);
+      },
+      gql::ParserError);
+
+  EXPECT_THROW(
+      {
+        value =
+            ParseUnsignedNumericLiteral("123.456e+50M", &numberOfSyntaxErrors);
       },
       gql::ParserError);
 

@@ -14,9 +14,10 @@
 
 #include "gql/rewrite.h"
 
+#include "common/formatted_error.h"
 #include "gql/ast/algorithm.h"
 #include "gql/ast/nodes/statements.h"
-#include "gql/error.h"
+
 
 namespace gql::rewrite {
 
@@ -58,14 +59,14 @@ ast::LabelExpressionPtr RewriteAsLabelExpression(
     const ast::SimplifiedFactorHigh& factor) {
   if (!std::holds_alternative<ast::SimplifiedFactorHigh::NoQuantifier>(
           factor.quantifier)) {
-    throw SyntaxRuleError(factor, ErrorCode::E0091,
-                          "Quantifier is not expected");
+    throw FormattedError(factor, ErrorCode::E0091,
+                         "Quantifier is not expected");
   }
 
   auto& tertiary = *factor.tertiary;
   if (tertiary.direction) {
-    throw SyntaxRuleError(tertiary, ErrorCode::E0092,
-                          "Direction is not expected");
+    throw FormattedError(tertiary, ErrorCode::E0092,
+                         "Direction is not expected");
   }
   return RewriteAsLabelExpression(tertiary);
 }
@@ -90,8 +91,8 @@ ast::LabelExpressionPtr RewriteAsLabelExpression(
 ast::LabelExpressionPtr RewriteAsLabelExpression(
     const ast::SimplifiedTerm& term) {
   if (term.factors.size() != 1) {
-    throw SyntaxRuleError(term, ErrorCode::E0093,
-                          "Concatenation is not expected");
+    throw FormattedError(term, ErrorCode::E0093,
+                         "Concatenation is not expected");
   }
 
   return RewriteAsLabelExpression(term.factors[0]);
@@ -100,8 +101,8 @@ ast::LabelExpressionPtr RewriteAsLabelExpression(
 ast::LabelExpressionPtr RewriteAsLabelExpression(
     const ast::SimplifiedContents& contents) {
   if (contents.op == ast::SimplifiedContents::Op::MultisetAlternation) {
-    throw SyntaxRuleError(contents, ErrorCode::E0094,
-                          "Multiset alternation is not expected");
+    throw FormattedError(contents, ErrorCode::E0094,
+                         "Multiset alternation is not expected");
   }
 
   if (contents.terms.size() == 1) {
@@ -125,10 +126,8 @@ ast::ElementPattern CreateEdgePattern(ast::EdgeDirectionPattern direction,
   auto& edge = result.emplace<ast::EdgePattern>();
   edge.SetInputPosition(label_expr->inputPosition());
   edge.direction = direction;
-  ast::ElementPatternFiller filler;
-  filler.SetInputPosition(label_expr->inputPosition());
-  filler.labelExpr = std::move(*label_expr);
-  edge.filler = std::move(filler);
+  edge.filler.SetInputPosition(label_expr->inputPosition());
+  edge.filler.labelExpr = std::move(*label_expr);
   return result;
 }
 
@@ -161,7 +160,7 @@ ast::PathFactor Rewrite(const ast::SimplifiedFactorHigh& factor,
   ast::PathFactor result;
   result.SetInputPosition(factor.inputPosition());
   result.quantifier = factor.quantifier;
-  result.path = Rewrite(*factor.tertiary, direction);
+  result.pattern = Rewrite(*factor.tertiary, direction);
   return result;
 }
 
@@ -173,7 +172,8 @@ ast::PathFactor Rewrite(const ast::SimplifiedFactorLow& factor,
 
   ast::PathFactor result;
   result.SetInputPosition(factor.inputPosition());
-  result.path = CreateEdgePattern(direction, RewriteAsLabelExpression(factor));
+  result.pattern =
+      CreateEdgePattern(direction, RewriteAsLabelExpression(factor));
   return result;
 }
 

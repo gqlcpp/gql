@@ -1,5 +1,7 @@
 set(SOURCES
     element_patterns.cpp
+    element_pattern_where.cpp
+    element_property_predicate.cpp
     exists_predicate.cpp
     helpers.h
     path_pattern_prefix.cpp

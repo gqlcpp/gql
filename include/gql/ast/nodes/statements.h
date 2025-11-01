@@ -754,7 +754,10 @@ using KeepClause = PathPatternPrefix;
 
 // graphPatternWhereClause
 //    : WHERE searchCondition
-using GraphPatternWhereClause = SearchCondition;
+struct GraphPatternWhereClause : NodeBase<GraphPatternWhereClause> {
+  SearchCondition condition;
+};
+GQL_AST_STRUCT(GraphPatternWhereClause, condition)
 
 // pathPatternList
 //    : pathPattern (COMMA pathPattern)*
@@ -764,12 +767,12 @@ using PathPatternList = std::vector<PathPattern>;
 //    : matchMode? pathPatternList keepClause? graphPatternWhereClause?
 struct GraphPattern : NodeBase<GraphPattern> {
   std::optional<MatchMode> matchMode;
-  PathPatternList patterns;
+  PathPatternList paths;
   std::optional<KeepClause>
       keep;  // Eliminated by rewrite::RewritePathPatternPrefix
   std::optional<GraphPatternWhereClause> where;
 };
-GQL_AST_STRUCT(GraphPattern, matchMode, patterns, keep, where)
+GQL_AST_STRUCT(GraphPattern, matchMode, paths, keep, where)
 
 // graphPatternYieldClause
 //    : YIELD graphPatternYieldItemList

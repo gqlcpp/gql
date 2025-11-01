@@ -46,7 +46,7 @@ void RewriteExistsPredicate(ast::ExistsPredicate& expr) {
       linearQuery.result.option.emplace<ast::PrimitiveResultStatement::Return>()
           .stmt.items.emplace()
           .emplace_back();
-  returnItem.alias.emplace().name = "tempGeneratedVar";
+  returnItem.alias.emplace().name = "gql_gen_return";
   returnItem.aggregate.option.emplace<ast::UnsignedLiteral>()
       .emplace<ast::GeneralLiteral>() = ast::TruthValue::TRUE;
   expr.option = std::move(proc);

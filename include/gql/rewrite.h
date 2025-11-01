@@ -40,4 +40,11 @@ GQL_EXPORT void RewriteSimplifiedPathPattern(ast::GQLProgram&);
 GQL_EXPORT void RewriteElementPatterns(ast::PathTerm&);
 GQL_EXPORT void RewriteElementPatterns(ast::GQLProgram&);
 
+// ISO/IEC 39075:2024 16.7 Syntax rule 12
+GQL_EXPORT void RewriteElementPatternWhereClause(ast::GQLProgram&);
+
+// ISO/IEC 39075:2024 16.3 Syntax rule 21 (and for those changed also apply 16.7
+// Syntax rule 12)
+GQL_EXPORT void RewriteElementPropertyPredicate(ast::GQLProgram&);
+
 }  // namespace gql::rewrite

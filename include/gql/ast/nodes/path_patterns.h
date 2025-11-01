@@ -33,8 +33,11 @@ using ParenthesizedPathPatternExpressionPtr =
 // NOTE 249 — An <element variable declaration> containing TEMP is a
 // specification device and is not syntax available to the user.
 struct ElementVariableDeclaration : BindingVariableBase,
-                                    NodeBase<ElementVariableDeclaration> {};
-GQL_AST_STRUCT(ElementVariableDeclaration, name)
+                                    NodeBase<ElementVariableDeclaration> {
+  bool isTemp =
+      false;  // Never set to true by parser, only by program transformatons.
+};
+GQL_AST_STRUCT(ElementVariableDeclaration, name, isTemp)
 
 // isLabelExpression
 //    : isOrColon labelExpression
@@ -70,7 +73,8 @@ GQL_AST_STRUCT(ElementPropertySpecification, props)
 //    : elementPatternWhereClause
 //    | elementPropertySpecification
 using ElementPatternPredicate =
-    std::variant<ElementPatternWhereClause, ElementPropertySpecification>;
+    std::variant<ElementPatternWhereClause,  // May be rewritten
+                 ElementPropertySpecification>;
 
 // elementPatternFiller
 //    : elementVariableDeclaration? isLabelExpression? elementPatternPredicate?
@@ -78,6 +82,8 @@ struct ElementPatternFiller : NodeBase<ElementPatternFiller> {
   std::optional<ElementVariableDeclaration> var;
   std::optional<IsLabelExpression> labelExpr;
   std::optional<ElementPatternPredicate> predicate;
+
+  bool MaybeNotSet() const { return !var && !labelExpr && !predicate; }
 };
 GQL_AST_STRUCT(ElementPatternFiller, var, labelExpr, predicate)
 
@@ -142,7 +148,7 @@ enum class EdgeDirectionPattern {
 //    | abbreviatedEdgePattern
 struct EdgePattern : NodeBase<EdgePattern> {
   EdgeDirectionPattern direction = EdgeDirectionPattern::Left;
-  std::optional<ElementPatternFiller> filler;
+  ElementPatternFiller filler;
 };
 GQL_AST_STRUCT(EdgePattern, direction, filler)
 
@@ -153,7 +159,11 @@ using ElementPattern = std::variant<NodePattern, EdgePattern>;
 
 // parenthesizedPathPatternWhereClause
 //    : WHERE searchCondition
-using ParenthesizedPathPatternWhereClause = SearchCondition;
+struct ParenthesizedPathPatternWhereClause
+    : NodeBase<ParenthesizedPathPatternWhereClause> {
+  SearchCondition condition;
+};
+GQL_AST_STRUCT(ParenthesizedPathPatternWhereClause, condition)
 
 using SubpathVariable = RegularIdentifier;
 
@@ -420,10 +430,10 @@ struct PathFactor : NodeBase<PathFactor> {
   using Optional = SimplifiedFactorHigh::Optional;
   using Quantifier = SimplifiedFactorHigh::Quantifier;
 
-  PathPrimary path;
+  PathPrimary pattern;
   Quantifier quantifier;
 };
-GQL_AST_STRUCT(PathFactor, path, quantifier)
+GQL_AST_STRUCT(PathFactor, pattern, quantifier)
 
 // pathTerm
 //    : pathFactor+

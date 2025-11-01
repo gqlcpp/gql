@@ -23,28 +23,28 @@ void RewriteElementPatterns(ast::PathTerm& expr) {
   bool lastWasEdge = true;
   for (auto elIt = expr.begin(); elIt != expr.end(); ++elIt) {
     auto& el = *elIt;
-    if (auto* element = std::get_if<ast::ElementPattern>(&el.path)) {
+    if (auto* element = std::get_if<ast::ElementPattern>(&el.pattern)) {
       if (auto* edge = std::get_if<ast::EdgePattern>(element)) {
         if (!std::holds_alternative<ast::PathFactor::NoQuantifier>(
                 el.quantifier)) {
           // Rewrite "->*" to "(() -> ())*"
           ast::PathFactor newNode;
-          newNode.path = ast::NodePattern{};
+          newNode.pattern = ast::NodePattern{};
 
           ast::ParenthesizedPathPatternExpressionPtr ppe;
           auto& terms = ppe->pattern.terms.emplace_back();
           terms.emplace_back(newNode);
-          terms.emplace_back().path = *element;
+          terms.emplace_back().pattern = *element;
           terms.emplace_back(newNode);
           SetInputPositionRecursive(ppe, edge->inputPosition());
 
-          el.path = std::move(ppe);
+          el.pattern = std::move(ppe);
           lastWasEdge = false;
         } else {
           if (lastWasEdge) {
             // Insert empty node pattern between edges
             ast::PathFactor newNode;
-            newNode.path = ast::NodePattern{};
+            newNode.pattern = ast::NodePattern{};
             SetInputPositionRecursive(newNode, edge->inputPosition());
             elIt = expr.emplace(elIt, newNode);
             ++elIt;
@@ -59,10 +59,10 @@ void RewriteElementPatterns(ast::PathTerm& expr) {
     }
   }
 
-  if (auto* element = std::get_if<ast::ElementPattern>(&expr.back().path)) {
+  if (auto* element = std::get_if<ast::ElementPattern>(&expr.back().pattern)) {
     if (auto* edge = std::get_if<ast::EdgePattern>(element)) {
       ast::PathFactor newNode;
-      newNode.path = ast::NodePattern{};
+      newNode.pattern = ast::NodePattern{};
       SetInputPositionRecursive(newNode, edge->inputPosition());
       expr.push_back(newNode);
     }

@@ -15,7 +15,7 @@
 #include "gql/rewrite.h"
 
 #include "gql/ast/algorithm.h"
-#include "gql/error.h"
+#include "common/formatted_error.h"
 
 namespace gql::rewrite {
 
@@ -24,7 +24,7 @@ void RewritePathPatternPrefix(ast::GraphPattern& graphPattern) {
     return;
   }
 
-  for (auto& pathPattern : graphPattern.patterns) {
+  for (auto& pathPattern : graphPattern.paths) {
     if (!pathPattern.prefix) {
       pathPattern.prefix = *graphPattern.keep;
       continue;
@@ -32,7 +32,7 @@ void RewritePathPatternPrefix(ast::GraphPattern& graphPattern) {
 
     if (pathPattern.prefix->pathSearchPrefix) {
       // 16.4.6.b.i
-      throw SyntaxRuleError(
+      throw FormattedError(
           *pathPattern.prefix, ErrorCode::E0090,
           "Path search prefix is not allowed in path pattern when "
           "graph pattern has KEEP clause");

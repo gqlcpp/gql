@@ -39,8 +39,10 @@ target_include_directories(gql_parser
 )
 
 target_link_libraries(gql_parser
-  antlr4_static
+  PUBLIC
   gql_ast
+  PRIVATE
+  antlr4_static
   gql_common
 )
 
@@ -70,6 +72,7 @@ target_link_libraries(gql_parser_test
   gql_parser
   gql_ast_print
   gql_ast_test_utils
+  antlr4_static
   GTest::gtest_main
   GTest::gmock_main
 )

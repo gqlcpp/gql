@@ -53,6 +53,16 @@ struct Printer<ElementPropertySpecification> {
 };
 
 template <>
+struct Printer<ElementVariableDeclaration> {
+  template <typename OutputStream>
+  static void Print(OutputStream& os, const ElementVariableDeclaration& v) {
+    if (v.isTemp)
+      os << "TEMP";
+    os << static_cast<BindingVariableBase>(v);
+  }
+};
+
+template <>
 struct Printer<ElementPatternFiller> {
   template <typename OutputStream>
   static void Print(OutputStream& os, const ElementPatternFiller& v) {
@@ -82,7 +92,7 @@ struct Printer<EdgePattern> {
   template <typename OutputStream>
   static void Print(OutputStream& os, const EdgePattern& v) {
     os << NoBreak{kEndOfNodePatternMark};
-    if (v.filler) {
+    if (v.filler.var || v.filler.labelExpr || v.filler.predicate) {
       switch (v.direction) {
         case EdgeDirectionPattern::Left:
           os << "<-[" << v.filler << "]-";

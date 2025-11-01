@@ -64,6 +64,7 @@ class GQL_EXPORT OutputStreamBase {
   OutputStreamBase& operator<<(const NoBreak&);
   OutputStreamBase& operator<<(const MarkSymbol&);
   OutputStreamBase& operator<<(const char* str);
+  OutputStreamBase& operator<<(int64_t num);
   OutputStreamBase& operator<<(uint64_t num);
   OutputStreamBase& operator<<(double num);
   OutputStreamBase& operator<<(QuotedString str);
@@ -101,6 +102,10 @@ class OutputStreamT : public OutputStreamBase {
   }
   OutputStreamT& operator<<(const char* str) {
     OutputStreamBase::operator<<(str);
+    return *this;
+  }
+  OutputStreamT& operator<<(int64_t num) {
+    OutputStreamBase::operator<<(num);
     return *this;
   }
   OutputStreamT& operator<<(uint64_t num) {

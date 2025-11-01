@@ -1,0 +1,4 @@
+/build*
+/src/fuzzer/out
+.venv
+/src/parser/generated/

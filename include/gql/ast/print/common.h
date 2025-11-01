@@ -83,6 +83,19 @@ struct Printer<T, std::enable_if_t<std::is_base_of_v<BindingVariableBase, T>>> {
 };
 
 template <>
+struct Printer<ExactNumericLiteral> {
+  template <typename OutputStream>
+  static void Print(OutputStream& os, const ExactNumericLiteral& v) {
+    if (v.scale == 0) {
+      os << v.value;
+    } else {
+      os << v.value << NoBreak() << "E-" << NoBreak()
+         << static_cast<uint64_t>(v.scale) << NoBreak() << "M";
+    }
+  }
+};
+
+template <>
 struct Printer<ByteStringLiteral> {
   template <typename OutputStream>
   static void Print(OutputStream& os, const ByteStringLiteral& v) {

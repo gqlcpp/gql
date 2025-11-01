@@ -16,6 +16,11 @@
 
 #include <cstdio>
 
+// "common/formatted_error.h" includes "fmt/format.h" which includes "cstdio"
+// which defines "EOF" macro. ATNLR undefines it, so we need to include
+// "common/formatted_error.h" first.
+#include "common/formatted_error.h"
+
 #include "ast_builder.h"
 #include "generated/GQLLexer.h"
 #include "generated/GQLParser.h"
@@ -35,8 +40,8 @@ class GQLParserErrorListener : public BaseErrorListener {
                    size_t charPositionInLine,
                    const std::string& msg,
                    std::exception_ptr) override {
-    throw ParserError({line, charPositionInLine}, ErrorCode::SyntaxError,
-                      "Parse error {0}", msg, offendingSymbol->getText());
+    throw FormattedError({line, charPositionInLine}, ErrorCode::SyntaxError,
+                         "Parse error {0}", msg, offendingSymbol->getText());
   }
 };
 

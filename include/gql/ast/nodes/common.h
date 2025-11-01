@@ -195,11 +195,17 @@ struct CharacterStringLiteral : NameNodeCommonBase,
                                 NodeBase<CharacterStringLiteral> {};
 GQL_AST_STRUCT(CharacterStringLiteral, name)
 
+struct ExactNumericLiteral {
+  int64_t value;
+  unsigned int scale;
+};
+GQL_AST_STRUCT(ExactNumericLiteral, value, scale)
+
 // unsignedNumericLiteral
 //    : exactNumericLiteral
 //    | approximateNumericLiteral
 //    ;
-using UnsignedNumericLiteral = double;
+using UnsignedNumericLiteral = std::variant<double, ExactNumericLiteral>;
 
 //  nullLiteral
 //    : NULL_KW

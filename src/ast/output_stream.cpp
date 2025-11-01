@@ -40,13 +40,18 @@ OutputStreamBase& OutputStreamBase::operator<<(const char* str) {
   return *this;
 }
 
+OutputStreamBase& OutputStreamBase::operator<<(int64_t num) {
+  MaybeSpace('1') << num;
+  return *this;
+}
+
 OutputStreamBase& OutputStreamBase::operator<<(uint64_t num) {
   MaybeSpace('1') << num;
   return *this;
 }
 
 OutputStreamBase& OutputStreamBase::operator<<(double num) {
-  MaybeSpace('1') << num;
+  MaybeSpace('1') << num << "d";
   return *this;
 }
 

@@ -35,7 +35,7 @@ class RewriteTest : public testing::TestWithParam<RewriteTestParam> {
   }
 
   void TearDown() override {
-    gql::ast::CheckInputPositions(program);
+    gql::ast::CheckInputPositions(program, ignorePositionOrder);
 
     int count = 0;
     gql::ast::ForEachNodeInTree(program, [&count](auto*) {
@@ -48,6 +48,7 @@ class RewriteTest : public testing::TestWithParam<RewriteTestParam> {
   }
 
   gql::ast::GQLProgram program;
+  bool ignorePositionOrder = false;
 };
 
 class SimplifiedPathPattern : public RewriteTest {};
@@ -95,3 +96,50 @@ INSTANTIATE_TEST_SUITE_P(
             R"(MATCH - - - (-) (- -{3} - (- (-)-?) - - (- -){2})- - (- -) )",
             R"(MATCH ()-()-()- (()-()) (()- (()-()) {3} - (()- (()-()) (()-()) ?) -()- (()-()-()) {2}) -()- (()-()-()))"},
         RewriteTestParam{R"(MATCH - - -)", R"(MATCH ()-()-()-())"}));
+
+class ElementPatternWhereClause : public RewriteTest {};
+
+TEST_P(ElementPatternWhereClause, Check) {
+  gql::rewrite::RewriteElementPatternWhereClause(program);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ElementPatternWhereClause,
+    testing::Values(RewriteTestParam{"MATCH (a WHERE a.prop=3)",
+                                     "MATCH ((a) WHERE a.prop = 3)"},
+                    RewriteTestParam{"MATCH -[b WHERE b.prop=3]-",
+                                     "MATCH (-[b]- WHERE b.prop = 3)"}));
+
+class ElementPropertyPredicate : public RewriteTest {
+ public:
+  ElementPropertyPredicate() {
+    // It will be impossible to guarantee position order after the rewrite. And
+    // to override or drop the positions would be overkill.
+    ignorePositionOrder = true;
+  }
+};
+
+TEST_P(ElementPropertyPredicate, Check) {
+  gql::rewrite::RewriteElementPropertyPredicate(program);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ElementPropertyPredicate,
+    testing::Values(
+        RewriteTestParam{"MATCH (a {prop:3})", "MATCH ((a) WHERE a.prop = 3)"},
+        RewriteTestParam{"MATCH -[b {prop:3}]-",
+                         "MATCH (-[b]- WHERE b.prop = 3)"},
+        RewriteTestParam{"MATCH (a :LABEL1 {prop:3})",
+                         "MATCH ((a :LABEL1) WHERE a.prop = 3)"},
+        RewriteTestParam{"MATCH (a {prop1:3, prop2:x.n})",
+                         "MATCH ((a) WHERE a.prop1 = 3 AND a.prop2 = x.n)"},
+        RewriteTestParam{"MATCH (a {prop1:x.p1, prop2:y.p2, prop3:z.p3})",
+                         "MATCH ((a) WHERE a.prop1 = x.p1 AND a.prop2 = y.p2 "
+                         "AND a.prop3 = z.p3)"},
+        RewriteTestParam{
+            "MATCH ({prop:3})",
+            "MATCH ((TEMP gql_gen_prop1) WHERE gql_gen_prop1.prop = 3)"},
+        RewriteTestParam{"MATCH (a {prop:3})",
+                         "MATCH ((a) WHERE a.prop = 3)"}));

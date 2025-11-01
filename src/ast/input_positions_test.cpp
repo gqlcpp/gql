@@ -63,7 +63,8 @@ struct ChildrenEnumeratedInOrder<gql::ast::NodeTypeSpecification> {
 
 template <typename NodeType>
 void CheckInputPositions(const NodeType& node,
-                         gql::ast::InputPosition& minStart) {
+                         gql::ast::InputPosition& minStart,
+                         bool ignorePositionOrder) {
   if constexpr (std::is_base_of_v<gql::ast::Node, NodeType>) {
     bool maybeNotSet = false;
     if constexpr (has_MaybeNotSet<NodeType>::value) {
@@ -75,7 +76,7 @@ void CheckInputPositions(const NodeType& node,
     }
 
     if (node.inputPosition().IsSet()) {
-      if (node.inputPosition() < minStart) {
+      if (!ignorePositionOrder && node.inputPosition() < minStart) {
         ADD_FAILURE() << "Node " << node.inputPosition().line << ":"
                       << node.inputPosition().col << " is before "
                       << minStart.line << ":" << minStart.col;
@@ -86,26 +87,29 @@ void CheckInputPositions(const NodeType& node,
   }
 
   if constexpr (ChildrenEnumeratedInOrder<NodeType>::value) {
-    gql::ast::ForEachChild(node, [&minStart](auto& childNode) {
-      CheckInputPositions(childNode, minStart);
-      return true;
-    });
+    gql::ast::ForEachChild(
+        node, [&minStart, ignorePositionOrder](auto& childNode) {
+          CheckInputPositions(childNode, minStart, ignorePositionOrder);
+          return true;
+        });
   } else {
     const auto parentStart = minStart;
-    gql::ast::ForEachChild(node, [&minStart, parentStart](auto& childNode) {
-      gql::ast::InputPosition childMinStart = parentStart;
-      CheckInputPositions(childNode, childMinStart);
-      if (childMinStart > minStart) {
-        minStart = childMinStart;
-      }
-      return true;
-    });
+    gql::ast::ForEachChild(
+        node, [&minStart, parentStart, ignorePositionOrder](auto& childNode) {
+          gql::ast::InputPosition childMinStart = parentStart;
+          CheckInputPositions(childNode, childMinStart, ignorePositionOrder);
+          if (childMinStart > minStart) {
+            minStart = childMinStart;
+          }
+          return true;
+        });
   }
 }
 
-void CheckInputPositions(const gql::ast::GQLProgram& program) {
+void CheckInputPositions(const gql::ast::GQLProgram& program,
+                         bool ignorePositionOrder) {
   gql::ast::InputPosition startPosition{0, 0};
-  CheckInputPositions(program, startPosition);
+  CheckInputPositions(program, startPosition, ignorePositionOrder);
 }
 
 }  // namespace gql::ast

@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// "gql/error.h" includes "fmt/format.h" which includes "cstdio" which defines
-// "EOF" macro. ATNLR undefines it, so we need to include "gql/error.h" first.
-#include "gql/error.h"
+// "common/formatted_error.h" includes "fmt/format.h" which includes "cstdio"
+// which defines "EOF" macro. ATNLR undefines it, so we need to include
+// "common/formatted_error.h" first.
+#include "common/formatted_error.h"
 
 #include "ast_builder.h"
 
@@ -83,20 +84,32 @@ void BuildAST(GQLParser::BindingVariableContext* ctx, NodeType& value) {
   BuildAST(ctx->regularIdentifier(), value);
 }
 
+static unsigned long long ReadUnsignedInteger(antlr4::Token* token,
+                                              const char* str,
+                                              const char** str_end,
+                                              int base = 10) {
+  try {
+    std::size_t pos;
+    auto value = std::stoull(str, &pos, base);
+    if (str_end) {
+      *str_end = str + pos;
+    }
+    return value;
+  } catch (const std::out_of_range& e) {
+    throw FormattedError({token->getLine(), token->getCharPositionInLine()},
+                         ErrorCode::ValueOutOfRange, kValueOutOfRangeErrorFmt,
+                         e.what(), token->getText());
+  }
+}
+
 void BuildAST(GQLParser::UnsignedDecimalIntegerContext* ctx,
               ast::UnsignedInteger& value) {
   auto token = ctx->UNSIGNED_DECIMAL_INTEGER()->getSymbol();
   std::string text = token->getText();
   text.erase(std::remove(text.begin(), text.end(), '_'), text.end());
-  size_t pos;
-  try {
-    value = std::stoull(text, &pos, 10);
-  } catch (const std::out_of_range& e) {
-    throw ParserError({token->getLine(), token->getCharPositionInLine()},
-                      ErrorCode::ValueOutOfRange, kValueOutOfRangeErrorFmt,
-                      e.what(), token->getText());
-  }
-  GQL_ASSERT(pos == text.size());
+  const char* str_end;
+  value = ReadUnsignedInteger(token, text.c_str(), &str_end);
+  GQL_ASSERT(str_end - text.c_str() == text.size());
 }
 
 void BuildAST(GQLParser::UnsignedIntegerContext* ctx,
@@ -124,67 +137,119 @@ void BuildAST(GQLParser::UnsignedIntegerContext* ctx,
   std::string text = token->getText();
   text.erase(std::remove(text.begin(), text.end(), '_'), text.end());
   text.erase(0, start);
-  size_t pos;
-  try {
-    value = std::stoull(text, &pos, base);
-  } catch (const std::out_of_range& e) {
-    throw ParserError({token->getLine(), token->getCharPositionInLine()},
-                      ErrorCode::ValueOutOfRange, kValueOutOfRangeErrorFmt,
-                      e.what(), token->getText());
-  }
-  GQL_ASSERT(pos == text.size());
+  const char* str_end;
+  value = ReadUnsignedInteger(token, text.c_str(), &str_end, base);
+  GQL_ASSERT(str_end - text.c_str() == text.size());
 }
 
-void BuildAST(GQLParser::UnsignedNumericLiteralContext* ctx,
-              ast::UnsignedNumericLiteral& value) {
+void BuildAST(GQLParser::ExactNumericLiteralContext* ctx,
+              ast::ExactNumericLiteral& value) {
+  value.scale = 0;
+  if (auto ctx2 = ctx->unsignedInteger()) {
+    ast::UnsignedInteger unsignedInteger;
+    BuildAST(ctx2, unsignedInteger);
+    value.value = unsignedInteger;
+    return;
+  }
+
+  if (auto ctx3 = ctx->UNSIGNED_DECIMAL_INTEGER_WITH_EXACT_NUMBER_SUFFIX()) {
+    auto token = ctx3->getSymbol();
+    std::string text = token->getText();
+    text.erase(text.size() - 1);
+    text.erase(std::remove(text.begin(), text.end(), '_'), text.end());
+    const char* str_end;
+    value.value = ReadUnsignedInteger(token, text.c_str(), &str_end);
+    GQL_ASSERT(str_end - text.c_str() == text.size());
+    return;
+  }
+
+  if (auto ctx2 =
+          ctx->UNSIGNED_DECIMAL_IN_SCIENTIFIC_NOTATION_WITH_EXACT_NUMBER_SUFFIX()) {
+    auto token = ctx2->getSymbol();
+    std::string text = token->getText();
+    text.erase(text.size() - 1);
+    text.erase(std::remove(text.begin(), text.end(), '_'), text.end());
+    auto dotOrExpPos = text.find_first_of(".eE", 0, 3);
+    GQL_ASSERT(dotOrExpPos != std::string::npos);
+    bool hasDot = false;
+    if (text[dotOrExpPos] == '.') {
+      text.erase(dotOrExpPos, 1);
+      hasDot = true;
+    }
+    const char* str_end;
+    value.value = ReadUnsignedInteger(token, text.c_str(), &str_end);
+    GQL_ASSERT(*str_end == 'e' || *str_end == 'E');
+    int scale = 0;
+    if (hasDot) {
+      scale = str_end - text.c_str() - dotOrExpPos;
+    }
+    try {
+      scale -= std::stol(str_end + 1, nullptr, 10);
+    } catch (const std::out_of_range& e) {
+      throw FormattedError({token->getLine(), token->getCharPositionInLine()},
+                           ErrorCode::ValueOutOfRange, kValueOutOfRangeErrorFmt,
+                           e.what(), token->getText());
+    }
+    while (scale < 0) {
+      auto prevValue = value.value;
+      value.value *= 10;
+      scale += 1;
+      if (prevValue > value.value) {
+        // Integer overflow happened
+        throw FormattedError(
+            {token->getLine(), token->getCharPositionInLine()},
+            ErrorCode::ValueOutOfRange, kValueOutOfRangeErrorFmt,
+            "Value is out of supported range", token->getText());
+      }
+    }
+    value.scale = scale;
+    return;
+  }
+
+  antlr4::Token* token;
+  std::string text;
+  if (auto ctx2 =
+          ctx->UNSIGNED_DECIMAL_IN_COMMON_NOTATION_WITH_EXACT_NUMBER_SUFFIX()) {
+    token = ctx2->getSymbol();
+    text = token->getText();
+    text.erase(text.size() - 1);
+  } else {
+    auto ctx3 = ctx->UNSIGNED_DECIMAL_IN_COMMON_NOTATION_WITHOUT_SUFFIX();
+    token = ctx3->getSymbol();
+    text = token->getText();
+  }
+
+  text.erase(std::remove(text.begin(), text.end(), '_'), text.end());
+  auto dotPos = text.find('.');
+  GQL_ASSERT(dotPos != std::string::npos);
+  text.erase(dotPos, 1);
+  const char* str_end;
+  value.value = ReadUnsignedInteger(token, text.c_str(), &str_end);
+  GQL_ASSERT(str_end - text.c_str() == text.size());
+  value.scale = text.size() - dotPos;
+}
+
+void BuildAST(GQLParser::ApproximateNumericLiteralContext* ctx, double& value) {
   size_t suffixLength = 0;
   std::string text;
-  if (auto ctx2 = ctx->exactNumericLiteral()) {
-    if (auto ctx3 = ctx2->unsignedInteger()) {
-      ast::UnsignedInteger unsignedInteger;
-      BuildAST(ctx3, unsignedInteger);
-      value = static_cast<double>(unsignedInteger);
-      return;
-    }
-    if (auto ctx3 =
-            ctx2->UNSIGNED_DECIMAL_IN_SCIENTIFIC_NOTATION_WITH_EXACT_NUMBER_SUFFIX()) {
-      text = ctx3->getSymbol()->getText();
-      suffixLength = 1;
-    } else if (
-        auto ctx3 =
-            ctx2->UNSIGNED_DECIMAL_IN_COMMON_NOTATION_WITH_EXACT_NUMBER_SUFFIX()) {
-      text = ctx3->getSymbol()->getText();
-      suffixLength = 1;
-    } else if (auto ctx3 =
-                   ctx2->UNSIGNED_DECIMAL_IN_COMMON_NOTATION_WITHOUT_SUFFIX()) {
-      text = ctx3->getSymbol()->getText();
-    } else {
-      text = ctx2->UNSIGNED_DECIMAL_INTEGER_WITH_EXACT_NUMBER_SUFFIX()
-                 ->getSymbol()
-                 ->getText();
-      suffixLength = 1;
-    }
+  if (auto ctx2 =
+          ctx->UNSIGNED_DECIMAL_IN_SCIENTIFIC_NOTATION_WITH_APPROXIMATE_NUMBER_SUFFIX()) {
+    text = ctx2->getSymbol()->getText();
+    suffixLength = 1;
+  } else if (
+      auto ctx2 =
+          ctx->UNSIGNED_DECIMAL_IN_SCIENTIFIC_NOTATION_WITHOUT_SUFFIX()) {
+    text = ctx2->getSymbol()->getText();
+  } else if (
+      auto ctx2 =
+          ctx->UNSIGNED_DECIMAL_IN_COMMON_NOTATION_WITH_APPROXIMATE_NUMBER_SUFFIX()) {
+    text = ctx2->getSymbol()->getText();
+    suffixLength = 1;
   } else {
-    auto ctx3 = ctx->approximateNumericLiteral();
-    if (auto ctx4 =
-            ctx3->UNSIGNED_DECIMAL_IN_SCIENTIFIC_NOTATION_WITH_APPROXIMATE_NUMBER_SUFFIX()) {
-      text = ctx4->getSymbol()->getText();
-      suffixLength = 1;
-    } else if (
-        auto ctx4 =
-            ctx3->UNSIGNED_DECIMAL_IN_SCIENTIFIC_NOTATION_WITHOUT_SUFFIX()) {
-      text = ctx4->getSymbol()->getText();
-    } else if (
-        auto ctx4 =
-            ctx3->UNSIGNED_DECIMAL_IN_COMMON_NOTATION_WITH_APPROXIMATE_NUMBER_SUFFIX()) {
-      text = ctx4->getSymbol()->getText();
-      suffixLength = 1;
-    } else {
-      text = ctx3->UNSIGNED_DECIMAL_INTEGER_WITH_APPROXIMATE_NUMBER_SUFFIX()
-                 ->getSymbol()
-                 ->getText();
-      suffixLength = 1;
-    }
+    text = ctx->UNSIGNED_DECIMAL_INTEGER_WITH_APPROXIMATE_NUMBER_SUFFIX()
+               ->getSymbol()
+               ->getText();
+    suffixLength = 1;
   }
   text.erase(text.size() - suffixLength);
   text.erase(std::remove(text.begin(), text.end(), '_'), text.end());
@@ -193,11 +258,20 @@ void BuildAST(GQLParser::UnsignedNumericLiteralContext* ctx,
     value = std::stod(text, &pos);
   } catch (const std::out_of_range& e) {
     auto token = ctx->getStart();
-    throw ParserError({token->getLine(), token->getCharPositionInLine()},
-                      ErrorCode::ValueOutOfRange, kValueOutOfRangeErrorFmt,
-                      e.what(), token->getText());
+    throw FormattedError({token->getLine(), token->getCharPositionInLine()},
+                         ErrorCode::ValueOutOfRange, kValueOutOfRangeErrorFmt,
+                         e.what(), token->getText());
   }
   GQL_ASSERT(pos == text.size());
+}
+
+void BuildAST(GQLParser::UnsignedNumericLiteralContext* ctx,
+              ast::UnsignedNumericLiteral& value) {
+  if (auto ctx2 = ctx->exactNumericLiteral()) {
+    BuildAST(ctx2, value.emplace<ast::ExactNumericLiteral>());
+  } else {
+    BuildAST(ctx->approximateNumericLiteral(), value.emplace<double>());
+  }
 }
 
 void BuildAST(GQLParser::TemporalLiteralContext* ctx,
@@ -224,6 +298,7 @@ void BuildAST(GQLParser::ListValueConstructorByEnumerationContext* ctx,
   if (auto ctx2 = ctx->listElementList()) {
     for (auto ctx3 : ctx2->listElement()) {
       BuildAST(ctx3->valueExpression(), *value.elements.emplace_back());
+      value.elements.back()->isValueExpressionRule = true;
     }
   }
 }
@@ -281,6 +356,7 @@ void BuildAST(GQLParser::RecordConstructorContext* ctx,
         AssignInputPosition(ctx4, value2);
         BuildAST(ctx4->fieldName()->identifier(), value2.name);
         BuildAST(ctx4->valueExpression(), *value2.value);
+        value2.value->isValueExpressionRule = true;
       }
     }
   }
@@ -1464,6 +1540,7 @@ void BuildAST(GQLParser::GeneralSetFunctionContext* ctx,
     BuildAST(ctx2, value.quantifier);
   }
   BuildAST(ctx->valueExpression(), *value.value);
+  value.value->isValueExpressionRule = true;
 }
 
 void BuildAST(GQLParser::AggregateFunctionContext* ctx,
@@ -1512,8 +1589,9 @@ void BuildAST(GQLParser::CastSpecificationContext* ctx,
   if (ctx->castOperand()->nullLiteral()) {
     value.operand = ast::NullLiteral();
   } else {
-    BuildAST(ctx->castOperand()->valueExpression(),
-             *value.operand.emplace<ast::ValueExpressionPtr>());
+    auto& operand = value.operand.emplace<ast::ValueExpressionPtr>();
+    BuildAST(ctx->castOperand()->valueExpression(), *operand);
+    operand->isValueExpressionRule = true;
   }
   BuildAST(ctx->castTarget()->valueType(), value.target);
 }
@@ -1532,12 +1610,14 @@ void BuildAST(GQLParser::LetVariableDefinitionContext* ctx,
     BuildAST(
         ctx2->optTypedValueInitializer()->valueInitializer()->valueExpression(),
         *value.expr);
+    value.expr->isValueExpressionRule = true;
     if (auto ctx3 = ctx2->optTypedValueInitializer()->valueType()) {
       BuildAST(ctx3, value.type.emplace());
     }
   } else {
     BuildAST(ctx->bindingVariable(), value.var);
     BuildAST(ctx->valueExpression(), *value.expr);
+    value.expr->isValueExpressionRule = true;
   }
 }
 
@@ -1549,6 +1629,7 @@ void BuildAST(GQLParser::LetValueExpressionContext* ctx,
     BuildAST(definition, value.definitions.emplace_back());
   }
   BuildAST(ctx->valueExpression(), *value.expression);
+  value.expression->isValueExpressionRule = true;
 }
 
 void BuildAST(GQLParser::NonParenthesizedValueExpressionPrimaryContext* ctx,
@@ -1613,8 +1694,9 @@ void BuildAST(GQLParser::ResultContext* ctx, ast::Result& value) {
   if (ctx->nullLiteral()) {
     value = ast::NullLiteral();
   } else {
-    BuildAST(ctx->resultExpression()->valueExpression(),
-             *value.emplace<ast::ValueExpressionPtr>());
+    auto& valueExpr = value.emplace<ast::ValueExpressionPtr>();
+    BuildAST(ctx->resultExpression()->valueExpression(), *valueExpr);
+    valueExpr->isValueExpressionRule = true;
   }
 }
 
@@ -1666,12 +1748,15 @@ void BuildAST(GQLParser::CaseExpressionContext* ctx,
       AssignInputPosition(ctx3, value2);
       BuildAST(ctx3->valueExpression(0), *value2.first);
       BuildAST(ctx3->valueExpression(1), *value2.second);
+      value2.first->isValueExpressionRule = true;
+      value2.second->isValueExpressionRule = true;
     } else {
       auto& value2 = value.emplace<ast::CoalesceCaseAbbreviation>();
       AssignInputPosition(ctx2, value2);
       for (auto expr : dynamic_cast<GQLParser::CoalesceExprAltContext*>(ctx2)
                            ->valueExpression()) {
         BuildAST(expr, *value2.expressions.emplace_back());
+        value2.expressions.back()->isValueExpressionRule = true;
       }
     }
   } else if (auto ctx2 = ctx->caseSpecification()) {
@@ -1728,6 +1813,7 @@ void BuildAST(GQLParser::ValueExpressionPrimaryContext* ctx,
   AssignInputPosition(ctx, value);
   if (auto ctx2 = ctx->parenthesizedValueExpression()) {
     BuildAST(ctx2->valueExpression(), value);
+    value.isValueExpressionRule = true;
   } else if (auto ctx2 = ctx->bindingVariableReference()) {
     BuildAST(ctx2->bindingVariable(),
              value.option.emplace<ast::BindingVariableReference>());
@@ -2317,6 +2403,7 @@ void BuildAST(GQLParser::PropertyKeyValuePairListContext* ctx,
     AssignInputPosition(ctx2, value2);
     BuildAST(ctx2->propertyName()->identifier(), value2.name);
     BuildAST(ctx2->valueExpression(), value2.value);
+    value2.value.isValueExpressionRule = true;
   }
 }
 
@@ -2334,15 +2421,14 @@ void BuildAST(GQLParser::ElementPatternFillerContext* ctx,
   if (auto ctx2 = ctx->elementPatternPredicate()) {
     if (auto ctx3 = ctx2->elementPatternWhereClause()) {
       if (!value.var) {
-        // 16.7.21 If an <element pattern> EP that contains an <element pattern
-        // where clause> EPWC, then EP shall simply contain an <element variable
-        // declaration> GPVD.
+        // 16.7.21 If an <element pattern> EP that contains an <element
+        // pattern where clause> EPWC, then EP shall simply contain an
+        // <element variable declaration> GPVD.
         auto token = ctx3->getStart();
-        throw SyntaxRuleError(
-            {token->getLine(), token->getCharPositionInLine()},
-            ErrorCode::E0084,
-            "Element pattern containing WHERE clause must "
-            "contain an element variable declaration");
+        throw FormattedError({token->getLine(), token->getCharPositionInLine()},
+                             ErrorCode::E0084,
+                             "Element pattern containing WHERE clause must "
+                             "contain an element variable declaration");
       }
 
       auto& value2 =
@@ -2366,25 +2452,25 @@ void BuildAST(GQLParser::EdgePatternContext* ctx, ast::EdgePattern& value) {
   if (auto ctx2 = ctx->fullEdgePattern()) {
     if (auto ctx3 = ctx2->fullEdgePointingLeft()) {
       value.direction = ast::EdgeDirectionPattern::Left;
-      BuildAST(ctx3->elementPatternFiller(), value.filler.emplace());
+      BuildAST(ctx3->elementPatternFiller(), value.filler);
     } else if (auto ctx3 = ctx2->fullEdgeUndirected()) {
       value.direction = ast::EdgeDirectionPattern::Undirected;
-      BuildAST(ctx3->elementPatternFiller(), value.filler.emplace());
+      BuildAST(ctx3->elementPatternFiller(), value.filler);
     } else if (auto ctx3 = ctx2->fullEdgePointingRight()) {
       value.direction = ast::EdgeDirectionPattern::Right;
-      BuildAST(ctx3->elementPatternFiller(), value.filler.emplace());
+      BuildAST(ctx3->elementPatternFiller(), value.filler);
     } else if (auto ctx3 = ctx2->fullEdgeLeftOrUndirected()) {
       value.direction = ast::EdgeDirectionPattern::LeftOrUndirected;
-      BuildAST(ctx3->elementPatternFiller(), value.filler.emplace());
+      BuildAST(ctx3->elementPatternFiller(), value.filler);
     } else if (auto ctx3 = ctx2->fullEdgeUndirectedOrRight()) {
       value.direction = ast::EdgeDirectionPattern::UndirectedOrRight;
-      BuildAST(ctx3->elementPatternFiller(), value.filler.emplace());
+      BuildAST(ctx3->elementPatternFiller(), value.filler);
     } else if (auto ctx3 = ctx2->fullEdgeLeftOrRight()) {
       value.direction = ast::EdgeDirectionPattern::LeftOrRight;
-      BuildAST(ctx3->elementPatternFiller(), value.filler.emplace());
+      BuildAST(ctx3->elementPatternFiller(), value.filler);
     } else if (auto ctx3 = ctx2->fullEdgeAnyDirection()) {
       value.direction = ast::EdgeDirectionPattern::AnyDirection;
-      BuildAST(ctx3->elementPatternFiller(), value.filler.emplace());
+      BuildAST(ctx3->elementPatternFiller(), value.filler);
     }
   } else if (auto ctx2 = ctx->abbreviatedEdgePattern()) {
     if (ctx2->LEFT_ARROW()) {
@@ -2608,18 +2694,18 @@ void BuildAST(GQLParser::PathFactorContext* ctx, ast::PathFactor& value) {
   AssignInputPosition(ctx, value);
   if (auto ctx2 = dynamic_cast<GQLParser::PfPathPrimaryContext*>(ctx)) {
     value.quantifier = ast::PathFactor::NoQuantifier{};
-    BuildAST(ctx2->pathPrimary(), value.path);
+    BuildAST(ctx2->pathPrimary(), value.pattern);
   } else if (auto ctx2 =
                  dynamic_cast<GQLParser::PfQuantifiedPathPrimaryContext*>(
                      ctx)) {
     BuildAST(ctx2->graphPatternQuantifier(),
              value.quantifier.emplace<ast::GraphPatternQuantifier>());
-    BuildAST(ctx2->pathPrimary(), value.path);
+    BuildAST(ctx2->pathPrimary(), value.pattern);
   } else if (auto ctx2 =
                  dynamic_cast<GQLParser::PfQuestionedPathPrimaryContext*>(
                      ctx)) {
     value.quantifier = ast::PathFactor::Optional{};
-    BuildAST(ctx2->pathPrimary(), value.path);
+    BuildAST(ctx2->pathPrimary(), value.pattern);
   }
 }
 
@@ -2662,7 +2748,7 @@ void BuildAST(GQLParser::ParenthesizedPathPatternExpressionContext* ctx,
   if (auto ctx2 = ctx->parenthesizedPathPatternWhereClause()) {
     BuildAST(
         ctx2->searchCondition()->booleanValueExpression()->valueExpression(),
-        *value.where.emplace());
+        *value.where.emplace().condition);
   }
 }
 
@@ -2747,19 +2833,24 @@ void BuildAST(GQLParser::PathPatternListContext* ctx,
   }
 }
 
+void BuildAST(GQLParser::GraphPatternWhereClauseContext* ctx,
+              ast::GraphPatternWhereClause& value) {
+  AssignInputPosition(ctx, value);
+  BuildAST(ctx->searchCondition()->booleanValueExpression()->valueExpression(),
+           *value.condition);
+}
+
 void BuildAST(GQLParser::GraphPatternContext* ctx, ast::GraphPattern& value) {
   AssignInputPosition(ctx, value);
   if (auto ctx2 = ctx->matchMode()) {
     BuildAST(ctx2, value.matchMode.emplace());
   }
-  BuildAST(ctx->pathPatternList(), value.patterns);
+  BuildAST(ctx->pathPatternList(), value.paths);
   if (auto ctx2 = ctx->keepClause()) {
     BuildAST(ctx2->pathPatternPrefix(), value.keep.emplace());
   }
   if (auto ctx2 = ctx->graphPatternWhereClause()) {
-    BuildAST(
-        ctx2->searchCondition()->booleanValueExpression()->valueExpression(),
-        *value.where.emplace());
+    BuildAST(ctx2, value.where.emplace());
   }
 }
 
@@ -2936,6 +3027,7 @@ void BuildAST(GQLParser::CallProcedureStatementContext* ctx,
     if (auto ctx4 = ctx3->procedureArgumentList()) {
       for (auto ctx5 : ctx4->procedureArgument()) {
         BuildAST(ctx5->valueExpression(), value2.args.emplace_back());
+        value2.args.back().isValueExpressionRule = true;
       }
     }
     if (auto ctx4 = ctx3->yieldClause()) {
@@ -3001,6 +3093,7 @@ void BuildAST(GQLParser::OptTypedValueInitializerContext* ctx,
     BuildAST(ctx2, value.type.emplace());
   }
   BuildAST(ctx->valueInitializer()->valueExpression(), *value.initializer);
+  value.initializer->isValueExpressionRule = true;
 }
 
 void BuildAST(GQLParser::ValueVariableDefinitionContext* ctx,
@@ -3072,6 +3165,7 @@ void BuildAST(GQLParser::OrderByClauseContext* ctx,
     AssignInputPosition(ctx2, value2);
     BuildAST(ctx2->sortKey()->aggregatingValueExpression()->valueExpression(),
              value2.sortKey);
+    value2.sortKey.isValueExpressionRule = true;
     if (auto ctx3 = ctx2->orderingSpecification()) {
       value2.ordering = (!!ctx3->ASCENDING() || !!ctx3->ASC())
                             ? ast::OrderingSpecification::ASCENDING
@@ -3102,14 +3196,15 @@ void BuildAST(GQLParser::ReturnItemContext* ctx, ast::ReturnItem& value) {
   AssignInputPosition(ctx, value);
   BuildAST(ctx->aggregatingValueExpression()->valueExpression(),
            value.aggregate);
+  value.aggregate.isValueExpressionRule = true;
   if (auto ctx2 = ctx->returnItemAlias()) {
     BuildAST(ctx2->identifier(), value.alias.emplace());
   } else {
     if (!std::holds_alternative<ast::BindingVariableReference>(
             value.aggregate.option)) {
       auto token = ctx->getStart();
-      throw SyntaxRuleError({token->getLine(), token->getCharPositionInLine()},
-                            ErrorCode::E0085, "Return item must have an alias");
+      throw FormattedError({token->getLine(), token->getCharPositionInLine()},
+                           ErrorCode::E0085, "Return item must have an alias");
     }
   }
 }
@@ -3161,15 +3256,16 @@ void BuildAST(GQLParser::SelectItemListContext* ctx,
     AssignInputPosition(ctx2, value2);
     BuildAST(ctx2->aggregatingValueExpression()->valueExpression(),
              value2.expr);
+    value2.expr.isValueExpressionRule = true;
     if (auto ctx3 = ctx2->selectItemAlias()) {
       BuildAST(ctx3->identifier(), value2.alias.emplace());
     } else {
       if (!std::holds_alternative<ast::BindingVariableReference>(
               value2.expr.option)) {
         auto token = ctx2->getStart();
-        throw SyntaxRuleError(
-            {token->getLine(), token->getCharPositionInLine()},
-            ErrorCode::E0086, "Select item must have an alias");
+        throw FormattedError({token->getLine(), token->getCharPositionInLine()},
+                             ErrorCode::E0086,
+                             "Select item must have an alias");
       }
     }
   }
@@ -3396,9 +3492,9 @@ void BuildAST(GQLParser::CompositeQueryExpressionFocusedContext* ctx,
     } else {
       if (!IsQueryConjunctionsEqual(conjunction, value.conjunction)) {
         auto token = ctx->queryConjunction()->getStart();
-        throw SyntaxRuleError(
-            {token->getLine(), token->getCharPositionInLine()},
-            ErrorCode::E0087, "Every query conjunction must be the same");
+        throw FormattedError({token->getLine(), token->getCharPositionInLine()},
+                             ErrorCode::E0087,
+                             "Every query conjunction must be the same");
       }
     }
   }
@@ -3416,9 +3512,9 @@ void BuildAST(GQLParser::CompositeQueryExpressionAmbientContext* ctx,
     } else {
       if (!IsQueryConjunctionsEqual(conjunction, value.conjunction)) {
         auto token = ctx->queryConjunction()->getStart();
-        throw SyntaxRuleError(
-            {token->getLine(), token->getCharPositionInLine()},
-            ErrorCode::E0088, "Every query conjunction must be the same");
+        throw FormattedError({token->getLine(), token->getCharPositionInLine()},
+                             ErrorCode::E0088,
+                             "Every query conjunction must be the same");
       }
     }
   }
@@ -3496,6 +3592,7 @@ void BuildAST(GQLParser::SetItemContext* ctx, ast::SetItem& value) {
     BuildAST(ctx2->bindingVariableReference()->bindingVariable(), value2.var);
     BuildAST(ctx2->propertyName()->identifier(), value2.property);
     BuildAST(ctx2->valueExpression(), value2.value);
+    value2.value.isValueExpressionRule = true;
   } else if (auto ctx2 = ctx->setAllPropertiesItem()) {
     auto& value2 = value.emplace<ast::SetAllPropertiesItem>();
     AssignInputPosition(ctx2, value2);
@@ -3555,6 +3652,7 @@ void BuildAST(GQLParser::PrimitiveDataModifyingStatementContext* ctx,
     value2.detach = !!ctx2->DETACH();
     for (auto ctx3 : ctx2->deleteItemList()->deleteItem()) {
       BuildAST(ctx3->valueExpression(), value2.items.emplace_back());
+      value2.items.back().isValueExpressionRule = true;
     }
   }
 }
@@ -3753,7 +3851,7 @@ void BuildAST(GQLParser::StartTransactionCommandContext* ctx,
       // 8.2 Syntax Rule 2: "TC shall contain exactly one <transaction access
       // mode>"
       auto token = ctx3->getStart();
-      throw SyntaxRuleError(
+      throw FormattedError(
           {token->getLine(), token->getCharPositionInLine()}, ErrorCode::E0089,
           "Cannot specify more than one transaction access mode");
     }

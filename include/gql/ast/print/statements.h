@@ -569,7 +569,7 @@ template <>
 struct Printer<GraphPattern> {
   template <typename OutputStream>
   static void Print(OutputStream& os, const GraphPattern& v) {
-    os << v.matchMode << Sequence(v.patterns, ",");
+    os << v.matchMode << Sequence(v.paths, ",");
     if (v.keep)
       os << "KEEP" << *v.keep;
     if (v.where)

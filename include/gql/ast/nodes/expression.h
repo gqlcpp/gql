@@ -459,9 +459,9 @@ enum class GeneralSetFunctionType {
   MAX,
   MIN,
   SUM,
-  COLLECT_LIST,
-  STDDEV_SAMP,
-  STDDEV_POP
+  COLLECT_LIST,  // GF10 feature
+  STDDEV_SAMP,   // GF10 feature
+  STDDEV_POP     // GF10 feature
 };
 
 // setQuantifier : DISTINCT | ALL ;
@@ -503,8 +503,10 @@ GQL_AST_STRUCT(BinarySetFunction, type, quantifier, dependentValue, independent)
 //     | generalSetFunction
 //     | binarySetFunction
 //     ;
-using AggregateFunction =
-    std::variant<CountAsteriskValue, GeneralSetFunction, BinarySetFunction>;
+using AggregateFunction = std::variant<CountAsteriskValue,
+                                       GeneralSetFunction,
+                                       BinarySetFunction  // GF11 feature
+                                       >;
 
 // element_idFunction : ELEMENT_ID LEFT_PAREN elementVariableReference
 // RIGHT_PAREN ;
@@ -1101,6 +1103,12 @@ struct ValueExpression : NodeBase<ValueExpression> {
                LetValueExpression,
                Predicate>
       option;
+
+  // This class is used not only for <value expression> but also for
+  // <value expression primary> and other rules. This flag indicates whether
+  // this instance was created exactly by <value expression> rule.
+  // This is used in only place to handle 20.9 General Rule 5.a
+  bool isValueExpressionRule = false;
 };
 GQL_AST_STRUCT(ValueExpression, option)
 GQL_AST_STRUCT(ValueExpression::Unary, op, expr)

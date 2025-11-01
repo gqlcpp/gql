@@ -30,6 +30,12 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>/bin")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>/lib")
 
 add_subdirectory(ast)
+add_subdirectory(build)
 add_subdirectory(common)
 add_subdirectory(parser)
 add_subdirectory(rewrite)
+add_subdirectory(syntax_analyzer)
+
+target_compile_definitions(gql_ast
+  INTERFACE GQL_AST_CUSTOM_NODE_BASE_INCLUDE="gql/syntax_analyzer/ast_node_base.h"
+)

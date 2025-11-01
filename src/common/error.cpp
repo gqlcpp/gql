@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "gql/error.h"
+#include "common/formatted_error.h"
 
 #include <sstream>
 #include <unordered_map>
@@ -52,14 +52,24 @@ const char* ParserError::GetFormatString(ErrorCode errorCode,
   }
 }
 
-ParserError::ParserError(FormattedString,
-                         ast::InputPosition inputPosition,
+ParserError::ParserError(ast::InputPosition inputPosition,
                          ErrorCode errorCode,
                          const std::string& msg)
     : std::runtime_error(FormatParserError(inputPosition, msg)),
       inputPosition_(inputPosition),
       errorCode_(errorCode),
       msg_(msg) {}
+
+UnsupportedFeatureError::UnsupportedFeatureError(standard::Feature feature,
+                                                 const ast::Node& node)
+    : ParserError(
+          node.inputPosition(),
+          ErrorCode::UnsupportedFeature,
+          fmt::format(GetFormatString(ErrorCode::UnsupportedFeature,
+                                      "Unsupported feature {0} \"{1}\""),
+                      standard::GetFeatureCodeString(feature),
+                      standard::GetFeatureDescription(feature))),
+      feature_(feature) {}
 
 std::string FormatErrorMessageInQuery(const std::string& query,
                                       gql::ast::InputPosition pos,
